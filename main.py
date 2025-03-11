@@ -18,7 +18,7 @@ def limit_remote_ips():
 @auth.verify_password
 def verify_password(username, password):
     if username in users:
-        if password == users['username']:
+        if password == users[username]:
             return True
     return False
 
@@ -55,6 +55,10 @@ def get_all_employees():
 def add_employee():
     data = request.json
     if data:
+        query = f"select emp_cnp from company.employees where emp_cnp = '{data['cnp']}'"
+        employee_cnp = db.read_from_db(query, db_config)
+        if employee_cnp:
+            return {"error": "CNP already exists"}
         query = f"""select department_id, budget from company.departments where department_name = '{data['department_name']}'"""
         department = db.read_from_db(query, db_config)
         if "error" in str(department):
@@ -81,15 +85,50 @@ def add_employee():
 @auth.login_required
 def fire_employee():
     name = request.args.get('name', "")
-    query = f"""DELETE from company.employees where emp_name = {name}"""
-    ok, response = db.execute_query(query,db_config)
-    if ok:
+    query = (f"""select e.department_id, e.salary, d.budget from company.employees e join company.departments d on e.department_id = d.department_id
+             where emp_name = '{name}'""")
+    data = db.read_from_db(query, db_config)
+    department = int(data[0]['department_id'])
+    salary = int(data[0]['salary'])
+    budget = int(data[0]['budget'])
+    new_budget = budget + salary
+    query = f"update company.departments set budget = {new_budget} where department_id = {department}"
+    updated_budget = db.execute_query(query, db_config)
+    if "error" in updated_budget:
+        return {"error": f"Budget not updated: {updated_budget}"}
+    query = f"DELETE from company.employees where emp_name = '{name}'"
+    response = db.execute_query(query, db_config)
+    if response:
         if "DELETE 0" in response:
             return {"message": "Employee not deleted"}
         else:
             return {"message": "Employee was fired"}
     else:
         return {"error": f"exception {response}"}
+
+
+@app.route("/emps", methods=['PUT'])
+@auth.login_required
+def raise_salary():
+    data = request.json
+    if data:
+        query = f"select e.salary, d.budget from company.employees e join company.departments d on e.department_id = d.department_id where emp_cnp = '{data['cnp']}'"
+        info = db.read_from_db(query, db_config)
+        salary = int(info[0]['salary'])
+        budget = int(info[0]['budget'])
+        query = "select SUM(salary) as total_salaries from company.employees"
+        suma = db.read_from_db(query, db_config)
+        total_salaries = int(suma[0]['total_salaries']) - salary
+        new_salary = salary + (data['raise']/100 * salary)
+        if total_salaries + new_salary > budget:
+            return {"error": "Budget exceeded"}
+        query = f"update company.employees set salary = {new_salary} where emp_cnp = {data['cnp']}"
+        response = db.execute_query(query, db_config)
+        if "error" in response:
+            return {"error": f"Exception: {response}"}
+        return {"message": "Raise applied"}
+    else:
+        return {"error": "No data given"}
 
 
 @app.route("/departments")
@@ -124,6 +163,15 @@ def get_projects():
     except Exception as e:
         print(e)
         return {}
+
+
+@app.route("/company")
+def get_info():
+    query = f"select COUNT(e.emp_id) as total_angajati, AVG(d.budget) as buget_mediu, SUM(d.budget) as buget_total from company.employees e join company.departments d on e.department_id = d.department_id"
+    response = db.read_from_db(query, db_config)
+    if response:
+        return jsonify(response)
+    return {"error": f"Exception {response}"}
 
 
 if __name__ == '__main__':

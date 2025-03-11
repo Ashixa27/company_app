@@ -27,11 +27,11 @@ def execute_query(query: str, db_conf: dict):
                 cursor.execute(query)
                 conn.commit()
                 print("Successful execution")
-                return cursor.statusmessage
+                return True, cursor.statusmessage
 
     except Exception as e:
         print(f"Failed to execute query {e}")
-        return "Unsuccessful query execution"
+        return False, f"Unsuccessful query execution {e}"
 
 
 if __name__ == '__main__':
